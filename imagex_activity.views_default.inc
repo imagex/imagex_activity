@@ -96,6 +96,7 @@ function imagex_activity_views_default_views() {
   $handler->display->display_options['filters']['field_activity_published_value']['id'] = 'field_activity_published_value';
   $handler->display->display_options['filters']['field_activity_published_value']['table'] = 'field_data_field_activity_published';
   $handler->display->display_options['filters']['field_activity_published_value']['field'] = 'field_activity_published_value';
+  $handler->display->display_options['filters']['field_activity_published_value']['operator'] = 'not empty';
   $handler->display->display_options['filters']['field_activity_published_value']['value'] = array(
     1 => '1',
   );
@@ -118,6 +119,36 @@ function imagex_activity_views_default_views() {
   $handler->display->display_options['pager']['type'] = 'some';
   $handler->display->display_options['pager']['options']['items_per_page'] = '5';
   $handler->display->display_options['pager']['options']['offset'] = '0';
+  $handler->display->display_options['defaults']['filter_groups'] = FALSE;
+  $handler->display->display_options['defaults']['filters'] = FALSE;
+  /* Filter criterion: Message: Published (field_activity_published) */
+  $handler->display->display_options['filters']['field_activity_published_value']['id'] = 'field_activity_published_value';
+  $handler->display->display_options['filters']['field_activity_published_value']['table'] = 'field_data_field_activity_published';
+  $handler->display->display_options['filters']['field_activity_published_value']['field'] = 'field_activity_published_value';
+  $handler->display->display_options['filters']['field_activity_published_value']['operator'] = 'not empty';
+  $handler->display->display_options['filters']['field_activity_published_value']['value'] = array(
+    1 => '1',
+  );
+  $handler->display->display_options['filters']['field_activity_published_value']['reduce_duplicates'] = TRUE;
+  /* Filter criterion: Message: Type */
+  $handler->display->display_options['filters']['type']['id'] = 'type';
+  $handler->display->display_options['filters']['type']['table'] = 'message';
+  $handler->display->display_options['filters']['type']['field'] = 'type';
+  $handler->display->display_options['filters']['type']['exposed'] = TRUE;
+  $handler->display->display_options['filters']['type']['expose']['operator_id'] = 'type_op';
+  $handler->display->display_options['filters']['type']['expose']['label'] = 'Filter by Message Type (optional)';
+  $handler->display->display_options['filters']['type']['expose']['operator'] = 'type_op';
+  $handler->display->display_options['filters']['type']['expose']['identifier'] = 'type';
+  $handler->display->display_options['filters']['type']['expose']['multiple'] = TRUE;
+  $handler->display->display_options['filters']['type']['expose']['remember_roles'] = array(
+    2 => '2',
+    1 => 0,
+    3 => 0,
+    7 => 0,
+    5 => 0,
+    6 => 0,
+    4 => 0,
+  );
   $handler->display->display_options['pane_category']['name'] = 'ImageX';
   $handler->display->display_options['pane_category']['weight'] = '0';
   $handler->display->display_options['allow']['use_pager'] = 0;

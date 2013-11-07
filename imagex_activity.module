@@ -210,26 +210,20 @@ function imagex_activity_message_create_access($entity, $target_ids, $target_fie
   if (empty($acting_uid)) {
     $acting_uid = $entity->uid;
   }
+  $account = user_load($acting_uid);
   
   if (empty($throttle_delay)) {
     $throttle_delay = variable_get($message_type .'_throttle_delay', '1 day');
   }
   
   // User access
-  if (!user_access('create messages')) {
+  if (!user_access('create messages', $account)) {
     return FALSE;
   }
   
   // Check message type exists
   if (!message_type_load($message_type)) {
     return FALSE;
-  }
-  
-  // Call to per message type access callback $message_type_trigger_access
-  // ie. imagex_activity_content_viewed_message_create_access($entity, $target_ids, $target_field, $message_type, $acting_uid, $throttle_delay)
-  $access_func = $message_type . '_message_create_access';
-  if (function_exists($access_func)) {
-    call_user_func($access_func, $entity, $target_ids, $target_field, $message_type, $acting_uid, $throttle_delay);
   }
 
   // Check if message type for given entity (target) & acting user are throttled
@@ -280,7 +274,3 @@ function imagex_activity_message_create_throttled($acting_uid, $target_ids, $tar
   return FALSE;
 }
 
-
-/**
- * Access API callbacks here
- */
