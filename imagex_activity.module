@@ -1,0 +1,286 @@
+<?php
+/**
+ * @file
+ * Code for the Imagex User Activity feature.
+ */
+
+include_once 'imagex_activity.features.inc';
+include_once 'imagex_activity.message_triggers.inc';
+
+/**
+ * Below code is based on message_example.module code.
+ *
+ * Message module Rules integration isn't mature yet
+ * hence having to do in code.
+ * Messages can be created with Rules but updating/unpublishing messages
+ * requires various Rules loop/conponents which end up more complex
+ * than coding it.
+ *
+ * @todo
+ *  - admin UI to control hook throttling (message type form) ?
+ */
+
+/**
+ * Implements hook_form_alter().
+ */
+function imagex_activity_form_alter(&$form, &$form_state, $form_id) {
+  if ($form_id == 'message_type_form') {
+    // Provide form field to alter throttle settings
+    $default = '';
+    if (!empty($form_state['message_type']->name)) {
+      $default = variable_get($form_state['message_type']->name .'_throttle_delay', '1 day');
+    }
+    
+    $form['imagex_activity_throttle_delay'] = array(
+      '#type' => 'textfield',
+      '#title' => t('Throttle Delay'),
+      '#description' => t('The delay between creating new activity messages of this type for a given user and related entity.
+                          Delay should be in <a href="http://php.net/manual/en/function.strtotime.php">strtotime</a> format. ie. 1 day, 2 days, 5 minutes.
+                          If blank no throttle is set.<br />NOTE: Only applies to message types where the trigger can be triggered over and over by a user on the same piece of content. ie. A user commenting multiple times on the same node.'),
+      '#default_value' => $default,
+    );
+    
+    $form['#validate'][] = 'imagex_activity_throttle_form_validate';
+  }
+}
+
+/**
+ * Custom form validation callback form message_type_form
+ */
+function imagex_activity_throttle_form_validate($form, &$form_state) {
+  if (!empty($form_state['values']['imagex_activity_throttle_delay']) && ($timestamp = strtotime($form_state['values']['imagex_activity_throttle_delay'])) === false) {
+    form_set_error('imagex_activity_throttle_delay', t('The throttle delay field value is not in a valid <a href="http://php.net/manual/en/function.strtotime.php">strtotime</a> format. ie. 1 day, 2 days, 5 minutes.'));
+  }
+}
+
+/**
+ * Implements hook_entity_presave().
+ */
+function imagex_activity_entity_presave($entity, $type) {
+  // save the throttle settings here so we have the $entity name 
+  if ($type == 'message_type' && !empty($entity->imagex_activity_throttle_delay)) {
+    variable_set($entity->name .'_throttle_delay', $entity->imagex_activity_throttle_delay);
+  }
+}
+
+/**
+ * Delete multiple message entities
+ *
+ * @parm $message_types
+ *  An array of specific message types
+ * @param $account
+ *  Array or FALSE, match messages to a given user account or accounts
+ * @param $property_conditions
+ *   Array of propertyCondition query conditions
+ * @param $field_conditions
+ *   Array of fieldCondition query conditions
+ *
+ * @see imagex_activity_load_message()
+ */
+function imagex_activity_delete_message($message_types = FALSE, $uids = FALSE, $property_conditions = array(), $field_conditions = array()) {
+  if ($messages = imagex_activity_load_message($message_types, $uids, $property_conditions, $field_conditions)) {
+    message_delete_multiple(array_keys($messages));
+  }
+}
+
+/**
+ * Load multiple message entities based on conditions
+ *
+ * @parm $message_types
+ *  An array of specific message types
+ * @param $account
+ *  Array or FALSE, match messages to a given user account or accounts
+ * @param $property_conditions
+ *   Array of propertyCondition query conditions
+ * @param $field_conditions
+ *   Array of fieldCondition query conditions
+ *
+ * @return
+ *  array of conditions keyed by message ID (mid) or FALSE
+ *
+ * @example
+ *  1. All messages related to a given node:
+ *    imagex_activity_load_message(FALSE, FALSE, array(), array('field_activity_node_ref' => array('column' => 'target_id', 'values' => $node->nid, 'operator' => '=')));
+ *  2. All messages related to a given user & message type:
+ *    imagex_activity_load_message(array('imagex_activity_content_liked'), array($node->uid));
+ *
+ * @see https://drupal.org/node/1343708
+ */
+function imagex_activity_load_message($message_types = FALSE, $uids = FALSE, $property_conditions = array(), $field_conditions = array()) {  
+  $query = new EntityFieldQuery;
+  $query->entityCondition('entity_type', 'message');
+
+  if (!empty($message_types)) {
+    $query->entityCondition('bundle', $message_types);
+  }  
+  
+  if (!empty($uids)) {
+    $query->propertyCondition('uid', $uids, 'IN');
+  }
+  
+  if (!empty($property_conditions)) {
+    foreach ($property_conditions as $field => $data) {
+      $query->propertyCondition($field, $data['values'], $data['operator']);
+    }
+  }  
+  
+  if (!empty($field_conditions)) {
+    foreach ($field_conditions as $field => $data) {
+      $query->fieldCondition($field, $data['column'],  $data['values'], $data['operator']);
+    }
+  }
+  
+  //run query as user 1 to get round access
+  $query->addMetaData('account', user_load(1))->addTag('DANGEROUS_ACCESS_CHECK_OPT_OUT');
+  $messages = $query->execute();
+  
+  // returns only the mid & conditions pass to keep it light(er)
+  if (!empty($messages)) {
+    return $messages['message'];
+  }
+  
+  return FALSE;
+}
+
+/**
+ * Update the "published" field in the message entity, when it changes in the
+ * related entity.
+ *
+ * This is a catch all (all users) when a referrenced entity is unpublished.
+ *
+ * @param $entity_type
+ *   The entity type (node or comment).
+ * @param $entity
+ *   The entity object.
+ * @param $delete
+ *   Whether the messages should be deleted or unpublished
+ */
+function imagex_activity_update_message_status($entity_type, $entity, $delete = FALSE) {
+  if ($entity->status == $entity->original->status) {
+    // status didn't change.
+    return;
+  }
+  list($id) = entity_extract_ids($entity_type, $entity);
+  $field_name = 'field_activity_' . $entity_type . '_ref';
+  $result = imagex_activity_load_message(FALSE, FALSE, FALSE, array(), array($field_name => array('column' => 'target_id', 'values' => $id, 'operator' => '=')));
+
+  if (empty($result)) {
+    return;
+  }
+
+  // Delete messages or just unpublish based on entity status
+  if ($delete) {
+    message_delete_multiple(array_keys($result));
+  }
+  else {
+    foreach (array_keys($result) as $mid) {
+      $wrapper = entity_metadata_wrapper('message', $mid);
+      // If comment status changed, we still need to check the node as-well.
+      if ($entity_type == 'comment') {
+        $node = node_load($entity->nid);
+        $status = intval($entity->status && $node->status);
+      }
+      else {
+        // The entity is the node.
+        $status = $entity->status;
+      }
+      if ($wrapper->field_activity_published->value() != $status) {
+        // Status changed, so update the message entity.
+        $wrapper->field_activity_published->set($status);
+        $wrapper->save();
+      }
+    }
+  }
+}
+
+/**
+ * Access callback to determine is a trigger can create a new message.
+ *
+ * @param $entity
+ *   The entity object to check again
+ * @param $target_ids
+ *   array of IDs to match against $target_field
+ * @param $target_field
+ *   field within message type to match $target_ids for
+ * @param $message_type
+ *   Type of message to check
+ */
+function imagex_activity_message_create_access($entity, $target_ids, $target_field, $message_type, $acting_uid = FALSE, $throttle_delay = NULL) {
+  // if no acting_uid assume entity UID
+  if (empty($acting_uid)) {
+    $acting_uid = $entity->uid;
+  }
+  
+  if (empty($throttle_delay)) {
+    $throttle_delay = variable_get($message_type .'_throttle_delay', '1 day');
+  }
+  
+  // User access
+  if (!user_access('create messages')) {
+    return FALSE;
+  }
+  
+  // Check message type exists
+  if (!message_type_load($message_type)) {
+    return FALSE;
+  }
+  
+  // Call to per message type access callback $message_type_trigger_access
+  // ie. imagex_activity_content_viewed_message_create_access($entity, $target_ids, $target_field, $message_type, $acting_uid, $throttle_delay)
+  $access_func = $message_type . '_message_create_access';
+  if (function_exists($access_func)) {
+    call_user_func($access_func, $entity, $target_ids, $target_field, $message_type, $acting_uid, $throttle_delay);
+  }
+
+  // Check if message type for given entity (target) & acting user are throttled
+  if (!empty($throttle_delay) && imagex_activity_message_create_throttled($acting_uid, $target_ids, $target_field, $message_type, $throttle_delay)) {
+    return FALSE;
+  }
+  
+  return TRUE;
+}
+
+/**
+ * Determines if a "trigger/hook" for a given entity (target) & user are throttled.
+ *
+ * Throttled = message has already been created for given event/trigger & entity.
+ * Prevents multiple messages like "USER like NODE TITLE"
+ *
+ * @param $acting_uid
+ *   User ID of user who fired triggers ie., user who created a new comment.
+ * @param $target_ids
+ *   array of IDs to match against $target_field.
+ * @param $target_field
+ *   field within message type to match $target_ids for.
+ * @param $message_type
+ *   Type of message to check.
+ * @param $time_delay
+ *   time string of how long should have passed before throttling is released.
+ */
+function imagex_activity_message_create_throttled($acting_uid, $target_ids, $target_field, $message_type, $time_delay = '1 day') {
+  //no delay = no throttle
+  if (empty($time_delay)) {
+    return FALSE;
+  }
+  $time_ago = strtotime(date('r', time()) . '-'. $time_delay);
+
+  $property_conditions = array(
+    'timestamp' => array('values' => $time_ago, 'operator' => '>='),
+  );
+  $field_conditions = array(
+    $target_field => array('column' => 'target_id', 'values' => $target_ids, 'operator' => 'IN'),
+  );
+  $result = imagex_activity_load_message(array($message_type), array($acting_uid), $property_conditions, $field_conditions);
+
+  if (!empty($result)) {
+    // If results exist = is throttled
+    return $result; 
+  }
+  
+  return FALSE;
+}
+
+
+/**
+ * Access API callbacks here
+ */
