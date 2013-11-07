@@ -58,7 +58,7 @@ function imagex_activity_throttle_form_validate($form, &$form_state) {
  */
 function imagex_activity_entity_presave($entity, $type) {
   // save the throttle settings here so we have the $entity name 
-  if ($type == 'message_type' && !empty($entity->imagex_activity_throttle_delay)) {
+  if ($type == 'message_type') {
     variable_set($entity->name .'_throttle_delay', $entity->imagex_activity_throttle_delay);
   }
 }
