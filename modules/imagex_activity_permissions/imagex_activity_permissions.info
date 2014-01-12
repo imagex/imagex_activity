@@ -5,7 +5,6 @@ package = ImageX
 version = 7.x-1.0-dev
 project = imagex_activity_permissions
 dependencies[] = features
-dependencies[] = imagex_activity
 dependencies[] = menu
 dependencies[] = message
 dependencies[] = message_ui

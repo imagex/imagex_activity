@@ -8,6 +8,7 @@ dependencies[] = ctools
 dependencies[] = entity
 dependencies[] = entityreference
 dependencies[] = features
+dependencies[] = imagex_activity_permissions
 dependencies[] = imagex_user
 dependencies[] = list
 dependencies[] = message
